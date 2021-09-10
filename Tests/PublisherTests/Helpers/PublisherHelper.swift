@@ -27,6 +27,7 @@ class PublisherHelper {
         locationUpdate: EnhancedLocationUpdate,
         trackable: Trackable,
         trackableState: PublisherTrackableState,
+        locationService: LocationService = MockLocationService(),
         resultPolicy: SendLocationResultPolicy = .success,
         error: ErrorInformation = ErrorInformation(type: .commonError(errorMessage: "Failure"))
     ) {
@@ -34,8 +35,6 @@ class PublisherHelper {
          Omit re-adding trackable
          */
         if !addedTrackables.contains(trackable.id) {
-            publisher.add(trackable: trackable) { _ in }
-            
             /**
              Start publishing trackable
              */
@@ -59,32 +58,59 @@ class PublisherHelper {
                 
         let expectationDidSendEnhancedLocation = XCTestExpectation(description: "Publisher did send enhanced location")
         
-        ablyService.sendEnhancedAssetLocationUpdateParamCompletionHandler = { completion in
+        ablyService.sendEnhancedAssetLocationUpdateParamCompletionHandler = { completion in            
             switch resultPolicy {
             case .success:
-                expectationDidSendEnhancedLocation.fulfill()
                 completion?(.success)
+                expectationDidSendEnhancedLocation.fulfill()
             case .retry:
                 if ablyService.sendEnhancedAssetLocationUpdateCounter == trackableState.maxRetryCount {
                     completion?(.failure(error))
                 } else {
-                    expectationDidSendEnhancedLocation.fulfill()
                     completion?(.success)
+                    expectationDidSendEnhancedLocation.fulfill()
                 }
             case .fail:
+                completion?(.failure(error))
                 if ablyService.sendEnhancedAssetLocationUpdateCounter == trackableState.maxRetryCount + 1 {
                     expectationDidSendEnhancedLocation.fulfill()
                 }
-                completion?(.failure(error))
             }
         }
         
-        publisher.locationService(sender: MockLocationService(), didUpdateEnhancedLocationUpdate: locationUpdate)
+        publisher.locationService(sender: locationService, didUpdateEnhancedLocationUpdate: locationUpdate)
 
         switch XCTWaiter.wait(for: [expectationDidSendEnhancedLocation], timeout: defaultTimeout) {
         case .timedOut:
             XCTFail("Timeout \(expectationDidSendEnhancedLocation.description)")
         default: ()
         }
+    }
+    
+    static func createPublisher(
+        connectionConfigurationn: ConnectionConfiguration = ConnectionConfiguration(apiKey: "API_KEY", clientId: "CLIENT_ID"),
+        mapboxConfiguration: MapboxConfiguration = MapboxConfiguration(mapboxKey: "MAPBOX_ACCESS_TOKEN"),
+        logConfiguration: LogConfiguration = LogConfiguration(),
+        routingProfile: RoutingProfile = .driving,
+        resolutionPolicyFactory: ResolutionPolicyFactory = MockResolutionPolicyFactory(),
+        ablyService: AblyPublisherService = MockAblyPublisherService(),
+        locationService: LocationService = MockLocationService(),
+        routeProvider: RouteProvider = MockRouteProvider(),
+        trackableState: PublisherTrackableState = DefaultTrackableState(),
+        skippedLocationState: PublisherSkippedLocationsState = DefaultSkippedLocationsState()
+    ) -> DefaultPublisher {
+        
+        DefaultPublisher(
+            connectionConfiguration: connectionConfigurationn,
+            mapboxConfiguration: mapboxConfiguration,
+            logConfiguration: logConfiguration,
+            routingProfile: routingProfile,
+            resolutionPolicyFactory: resolutionPolicyFactory,
+            ablyService: ablyService,
+            locationService: locationService,
+            routeProvider: routeProvider,
+            trackableState: trackableState,
+            skippedLocationsState: skippedLocationState
+        )
     }
 }

@@ -27,6 +27,8 @@ class WaitAsync {
                     expectation.fulfill()
                     break
                 }
+                
+                CFRunLoopRunInMode(CFRunLoopMode.defaultMode, CFTimeInterval(0.1), false)
             }
         }
         

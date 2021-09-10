@@ -22,4 +22,11 @@ public class EnhancedLocationUpdate {
     public init(location: CLLocation) {
         self.location = location
     }
+    
+}
+
+extension EnhancedLocationUpdate: Equatable {
+    public static func == (lhs: EnhancedLocationUpdate, rhs: EnhancedLocationUpdate) -> Bool {
+        lhs.location == rhs.location && lhs.skippedLocations == rhs.skippedLocations && lhs.type == rhs.type
+    }
 }

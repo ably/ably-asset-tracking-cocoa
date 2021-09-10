@@ -4,7 +4,7 @@
 
 import Foundation
 
-class DefaultSkippedLocatoinsState: PublisherSkippedLocationsState {
+class DefaultSkippedLocationsState: PublisherSkippedLocationsState {
     
     let maxSkippedLocationsSize: Int
     private var skippedLocations: [String: [EnhancedLocationUpdate]] = [:]
@@ -16,6 +16,7 @@ class DefaultSkippedLocatoinsState: PublisherSkippedLocationsState {
     func add(trackableId: String, location: EnhancedLocationUpdate) {
         var locations = skippedLocations[trackableId] ?? []
         locations.append(location)
+        locations.sort { $0.location.timestamp < $1.location.timestamp }
         if locations.count > maxSkippedLocationsSize {
             locations.remove(at: .zero)
         }

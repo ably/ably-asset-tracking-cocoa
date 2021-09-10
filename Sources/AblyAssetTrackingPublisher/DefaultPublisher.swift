@@ -67,7 +67,7 @@ class DefaultPublisher: Publisher {
          locationService: LocationService,
          routeProvider: RouteProvider,
          trackableState: PublisherTrackableState = DefaultTrackableState(),
-         skippedLocationsState: PublisherSkippedLocationsState = DefaultSkippedLocatoinsState()
+         skippedLocationsState: PublisherSkippedLocationsState = DefaultSkippedLocationsState()
     ) {
         
         self.connectionConfiguration = connectionConfiguration
@@ -400,6 +400,7 @@ extension DefaultPublisher {
         self.ablyService.stopTracking(trackable: event.trackable) { [weak self] result in
             switch result {
             case .success(let wasPresent):
+                self?.trackableState.remove(trackableId: event.trackable.id)
                 wasPresent
                     ? self?.enqueue(event: ClearRemovedTrackableMetadataEvent(trackable: event.trackable, resultHandler: event.resultHandler))
                     : self?.callback(value: false, handler: event.resultHandler)
@@ -432,6 +433,7 @@ extension DefaultPublisher {
 
     private func performAblyConnectionClosedEvent(_ event: AblyConnectionClosedEvent) {
         state = .stopped
+        trackableState.removeAll()
         skippedLocationsState.clearAll()
         callback(value: Void(), handler: event.resultHandler)
     }
@@ -532,7 +534,12 @@ extension DefaultPublisher {
             return
         }
 
-        let trackablesToSend = trackables.filter { [weak self] trackable in
+        let trackablesToSend = trackables.filter { trackable in
+            guard !trackableState.hasPendingMessage(for: trackable.id) else {
+                trackableState.addToWaiting(locationUpdate: event.locationUpdate, for: trackable.id)
+                return false
+            }
+            
             let shouldSend = shouldSendLocation(
                 location: event.locationUpdate.location,
                 lastLocation: lastEnhancedLocations[trackable],
@@ -541,7 +548,7 @@ extension DefaultPublisher {
             )
             
             if !shouldSend {
-                self?.skippedLocationsState.add(trackableId: trackable.id, location: event.locationUpdate)
+                skippedLocationsState.add(trackableId: trackable.id, location: event.locationUpdate)
             }
             
             return shouldSend
@@ -554,12 +561,21 @@ extension DefaultPublisher {
         checkThreshold(location: event.locationUpdate.location)
     }
     
+    private func processNextWaitingEnhancedLocationUpdate(for trackableId: String) {
+        guard let enhancedLocationUpdate = trackableState.nextWaiting(for: trackableId) else {
+            return
+        }
+        
+        performEnhancedLocationChanged(EnhancedLocationChangedEvent(locationUpdate: enhancedLocationUpdate))
+    }
+    
     private func sendEnhancedLocationUpdate(event: EnhancedLocationChangedEvent, trackable: Trackable) {
         lastEnhancedLocations[trackable] = event.locationUpdate.location
         lastEnhancedTimestamps[trackable] = event.locationUpdate.location.timestamp
         
         event.locationUpdate.skippedLocations = skippedLocationsState.list(for: trackable.id).map { $0.location }
 
+        trackableState.markMessageAsPending(for: trackable.id)
         ablyService.sendEnhancedAssetLocationUpdate(locationUpdate: event.locationUpdate, forTrackable: trackable) { [weak self] result in
             switch result {
             case .failure(let error):
@@ -601,14 +617,18 @@ extension DefaultPublisher {
     }
     
     private func performSendEnhancedLocationSuccess(_ event: SendEnhancedLocationSuccessEvent) {
+        trackableState.unmarkMessageAsPending(for: event.trackable.id)
         skippedLocationsState.clear(trackableId: event.trackable.id)
         trackableState.resetCounter(for: event.trackable.id)
+        processNextWaitingEnhancedLocationUpdate(for: event.trackable.id)
     }
     
     private func performSendEnhancedLocationFailure(_ event: SendEnhancedLocationFailureEvent) {
         guard trackableState.shouldRetry(trackableId: event.trackable.id) else {
+            trackableState.unmarkMessageAsPending(for: event.trackable.id)
             saveLocationForFurtherSending(trackableId: event.trackable.id, location: event.locationUpdate)
             callback(event: DelegateErrorEvent(error: event.error))
+            processNextWaitingEnhancedLocationUpdate(for: event.trackable.id)
             return
         }
         
@@ -708,6 +728,7 @@ extension DefaultPublisher {
         }
 
         guard event.presenceData.type == .subscriber else { return }
+        
         if event.presence == .enter {
             addSubscriber(clientId: event.clientId, trackable: event.trackable, data: event.presenceData)
         } else if event.presence == .leave {
