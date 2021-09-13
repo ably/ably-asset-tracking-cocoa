@@ -32,6 +32,7 @@ class DefaultPublisher: Publisher {
     private let batteryLevelProvider: BatteryLevelProvider
     private var trackableState: PublisherTrackableState
     private var skippedLocationsState: PublisherSkippedLocationsState
+    private var changedLocationState: PublisherChangedLocationState
     private var state: State = .working
 
     // ResolutionPolicy
@@ -67,7 +68,8 @@ class DefaultPublisher: Publisher {
          locationService: LocationService,
          routeProvider: RouteProvider,
          trackableState: PublisherTrackableState = DefaultTrackableState(),
-         skippedLocationsState: PublisherSkippedLocationsState = DefaultSkippedLocationsState()
+         skippedLocationsState: PublisherSkippedLocationsState = DefaultSkippedLocationsState(),
+         changedLocationState: PublisherChangedLocationState = DefaultChangedLocationState()
     ) {
         
         self.connectionConfiguration = connectionConfiguration
@@ -80,6 +82,7 @@ class DefaultPublisher: Publisher {
         self.routeProvider = routeProvider
         self.trackableState = trackableState
         self.skippedLocationsState = skippedLocationsState
+        self.changedLocationState = changedLocationState
 
         self.batteryLevelProvider = DefaultBatteryLevelProvider()
 
@@ -196,8 +199,8 @@ extension DefaultPublisher {
             switch event {
             case let event as TrackTrackableEvent: self?.performTrackTrackableEvent(event)
             case let event as PresenceJoinedSuccessfullyEvent: self?.performPresenceJoinedSuccessfullyEvent(event)
-            case let event as TripStartEvent: self?.performTripStartEvent(event)
-            case let event as TripEndEvent: self?.performTripEndEvent(event)
+            case let event as TripStartedEvent: self?.performTripStartEvent(event)
+            case let event as TripEndedEvent: self?.performTripEndEvent(event)
             case let event as TrackableReadyToTrackEvent: self?.performTrackableReadyToTrack(event)
             case let event as EnhancedLocationChangedEvent: self?.performEnhancedLocationChanged(event)
             case let event as SendEnhancedLocationSuccessEvent: self?.performSendEnhancedLocationSuccess(event)
@@ -296,7 +299,7 @@ extension DefaultPublisher {
             publisherStoppedCallback(handler: event.resultHandler)
             return
         }
-
+        
         if activeTrackable != event.trackable {
             activeTrackable = event.trackable
             hooks.trackables?.onActiveTrackableChanged(trackable: event.trackable)
@@ -314,10 +317,10 @@ extension DefaultPublisher {
                 self.route = nil
             }
         }
-
+        
         callback(value: Void(), handler: event.resultHandler)
     }
-
+    
     private func performPresenceJoinedSuccessfullyEvent(_ event: PresenceJoinedSuccessfullyEvent) {
         guard !state.isStoppingOrStopped else {
             publisherStoppedCallback(handler: event.resultHandler)
@@ -329,15 +332,35 @@ extension DefaultPublisher {
         resolveResolution(trackable: event.trackable)
         hooks.trackables?.onTrackableAdded(trackable: event.trackable)
         event.resultHandler(.success)
-        enqueue(event: TripStartEvent(trackable: event.trackable))
+        enqueue(event: TripStartedEvent(trackable: event.trackable))
     }
     
-    private func performTripStartEvent(_ event: TripStartEvent) {
-        sendStartTripMetadata(trackable: event.trackable)
+    private func performTripStartEvent(_ event: TripStartedEvent) {
+        guard let currentLocation = lastEnhancedLocations[event.trackable] else {
+            changedLocationState.append(.tripStart(event: event, closure: performTripStartEvent))
+            return
+        }
+        
+        ablyService.sendTripStartMetadata(
+            metadata: createTripMetadata(
+                trackable: event.trackable,
+                currentLocation: currentLocation
+            )
+        )
     }
     
-    private func performTripEndEvent(_ event: TripEndEvent) {
-        sendEndTripMetadata(trackable: event.trackable)
+    private func performTripEndEvent(_ event: TripEndedEvent) {
+        guard let currentLocation = lastEnhancedLocations[event.trackable] else {
+            changedLocationState.append(.tripEnd(event: event, closure: performTripEndEvent))
+            return
+        }
+        
+        ablyService.sendTripEndMetadata(
+            metadata: createTripMetadata(
+                trackable: event.trackable,
+                currentLocation: currentLocation
+            )
+        )
     }
 
     // MARK: RoutingProfile
@@ -401,10 +424,10 @@ extension DefaultPublisher {
             switch result {
             case .success(let wasPresent):
                 self?.trackableState.remove(trackableId: event.trackable.id)
+                self?.enqueue(event: TripEndedEvent(trackable: event.trackable))
                 wasPresent
                     ? self?.enqueue(event: ClearRemovedTrackableMetadataEvent(trackable: event.trackable, resultHandler: event.resultHandler))
                     : self?.callback(value: false, handler: event.resultHandler)
-                self?.enqueue(event: TripEndEvent(trackable: event.trackable))
             case .failure(let error):
                 self?.callback(error: error, handler: event.resultHandler)
             }
@@ -533,6 +556,8 @@ extension DefaultPublisher {
             logger.error("Cannot perform EnhancedLocationChangedEvent. Publisher is not working.")
             return
         }
+        
+        changedLocationState.apply()
 
         let trackablesToSend = trackables.filter { trackable in
             guard !trackableState.hasPendingMessage(for: trackable.id) else {
@@ -588,23 +613,6 @@ extension DefaultPublisher {
     
     private func saveLocationForFurtherSending(trackableId: String, location: EnhancedLocationUpdate) {
         skippedLocationsState.add(trackableId: trackableId, location: location)
-    }
-    
-    private func sendStartTripMetadata(trackable: Trackable) {
-        guard let currentLocation = lastEnhancedLocations[trackable] else {
-            return
-        }
-        
-        ablyService.sendTripStartMetadata(
-            metadata: createTripMetadata(
-                trackable: trackable,
-                currentLocation: currentLocation
-            )
-        )
-    }
-    
-    private func sendEndTripMetadata(trackable: Trackable) {
-        
     }
     
     private func createTripMetadata(trackable: Trackable, currentLocation: CLLocation) -> TripMetadata {

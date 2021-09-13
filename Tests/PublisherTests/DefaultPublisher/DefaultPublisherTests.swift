@@ -808,4 +808,37 @@ class DefaultPublisherTests: XCTestCase {
         
         return state
     }
+    
+    func testChangedLocationState() {
+        let id = UUID().uuidString
+        let trackable = Trackable(id: id)
+        let tripEvent = TripStartedEvent(trackable: trackable)
+        
+        /**
+         State `apply` method is called synchronous, so there is no need to create `expectation`, and simple `Bool` flag is enough
+         */
+        var tripStartedExecuted = false
+        let tripSartedClosure: ((TripStartedEvent) -> Void) = { event in
+            XCTAssertEqual(tripEvent.trackable, trackable)
+            XCTAssertEqual(event.trackable.id, id)
+            tripStartedExecuted = true
+        }
+        
+        let state = DefaultChangedLocationState()
+        state.append(.tripStart(event: tripEvent, closure: tripSartedClosure))
+        
+        /**
+         Collection should have only `1 WrappedClosure` object (not empty)
+         */
+        XCTAssertFalse(state.isEmpty)
+        
+        state.apply()
+        
+        XCTAssertTrue(tripStartedExecuted)
+        
+        /**
+         After execution of `apply` method,  collection is cleared, so `count` should be equal `0`aka `isEmpty`
+         */
+        XCTAssertTrue(state.isEmpty)
+    }
 }

@@ -274,6 +274,7 @@ class DefaultPublisher_LocationServiceTests: XCTestCase {
         let locationService = MockLocationService()
         let resolutionPolicyFactory = MockResolutionPolicyFactory()
         let publisher = PublisherHelper.createPublisher(
+            resolutionPolicyFactory: resolutionPolicyFactory,
             ablyService: ablyService,
             locationService: locationService,
             trackableState: trackableState
@@ -311,5 +312,92 @@ class DefaultPublisher_LocationServiceTests: XCTestCase {
          Wait for `sendEnhancedAssetLocationUpdateParamCompletionHandler` called `2` times
          */
         wait(for: [sendLocationCompleteExpectation], timeout: 10.0)
+    }
+    
+    func testTripStartMessage() {
+        let trackable = Trackable(id: "Trackable_2")
+        let initialLocation = CLLocation(latitude: 1, longitude: 1)
+        let locationUpdate = EnhancedLocationUpdate(location: initialLocation)
+        let resolutionPolicyFactory = MockResolutionPolicyFactory()
+        let ablyService = MockAblyPublisherService()
+        let locationService = MockLocationService()
+        let publisher = PublisherHelper.createPublisher(
+            resolutionPolicyFactory: resolutionPolicyFactory,
+            ablyService: ablyService,
+            locationService: locationService
+        )
+        
+        resolutionPolicyFactory.resolutionPolicy?.resolveResolutionsReturnValue = .init(accuracy: .balanced, desiredInterval: 0, minimumDisplacement: 0)
+        
+        let trackCompletionHandlerExpectation = XCTestExpectation(description: "Track completion handler expectation")
+        ablyService.trackCompletionHandler = { callback in
+            callback?(.success)
+            trackCompletionHandlerExpectation.fulfill()
+        }
+        publisher.track(trackable: trackable) { _ in }
+        wait(for: [trackCompletionHandlerExpectation], timeout: 5.0)
+        
+        let sendTripStartCalledExpectation = XCTestExpectation(description: "Send Trip Called Expectation")
+        ablyService.sendTripStartMetadataHandler = {
+            sendTripStartCalledExpectation.fulfill()
+        }
+        
+        let sendLocationCompleteExpectation = XCTestExpectation(description: "Send Location Complete Expectation")
+        ablyService.sendEnhancedAssetLocationUpdateParamCompletionHandler = { completion in
+            sendLocationCompleteExpectation.fulfill()
+        }
+        
+        publisher.locationService(sender: locationService, didUpdateEnhancedLocationUpdate: locationUpdate)
+        
+        wait(for: [sendTripStartCalledExpectation, sendLocationCompleteExpectation], timeout: 5.0)
+    }
+    
+    func testTripEndMessage() {
+        let trackable = Trackable(id: "Trackable_2")
+        let initialLocation = CLLocation(latitude: 1, longitude: 1)
+        let locationUpdate = EnhancedLocationUpdate(location: initialLocation)
+        let resolutionPolicyFactory = MockResolutionPolicyFactory()
+        let ablyService = MockAblyPublisherService()
+        let locationService = MockLocationService()
+        let publisher = PublisherHelper.createPublisher(
+            resolutionPolicyFactory: resolutionPolicyFactory,
+            ablyService: ablyService,
+            locationService: locationService
+        )
+        
+        resolutionPolicyFactory.resolutionPolicy?.resolveResolutionsReturnValue = .init(accuracy: .balanced, desiredInterval: 0, minimumDisplacement: 0)
+        
+        let trackCompletionHandlerExpectation = XCTestExpectation(description: "Track completion handler expectation")
+        ablyService.trackCompletionHandler = { callback in
+            callback?(.success)
+            trackCompletionHandlerExpectation.fulfill()
+        }
+        publisher.track(trackable: trackable) { _ in }
+        wait(for: [trackCompletionHandlerExpectation], timeout: 5.0)
+        
+        let sendLocationCompleteExpectation = XCTestExpectation(description: "Send Location Complete Expectation")
+        ablyService.sendEnhancedAssetLocationUpdateParamCompletionHandler = { completion in
+            sendLocationCompleteExpectation.fulfill()
+        }
+        
+        publisher.locationService(sender: locationService, didUpdateEnhancedLocationUpdate: locationUpdate)
+        
+        wait(for: [sendLocationCompleteExpectation], timeout: 5.0)
+        
+        let sendTripEndCalledExpectation = XCTestExpectation(description: "Send Trip Called Expectation")
+        ablyService.sendTripEndMetadataHandler = {
+            sendTripEndCalledExpectation.fulfill()
+        }
+        
+        let stopTrackingCompleteExpectation = XCTestExpectation(description: "Stop Tracking Complete Expectation")
+   
+        ablyService.stopTrackingResultCompletionHandler = { completion in
+            completion?(.success(true))
+            stopTrackingCompleteExpectation.fulfill()
+        }
+        
+        publisher.remove(trackable: trackable) { _ in }
+        
+        wait(for: [stopTrackingCompleteExpectation, sendTripEndCalledExpectation], timeout: 5.0)
     }
 }

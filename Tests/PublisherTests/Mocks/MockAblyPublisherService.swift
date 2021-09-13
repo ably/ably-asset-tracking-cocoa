@@ -23,6 +23,7 @@ class MockAblyPublisherService: AblyPublisherService {
         stopTrackingCalled = true
         stopTrackingParamTrackable = trackable
         stopTrackingParamResultHandler = completion
+        
         stopTrackingResultCompletionHandler?(completion)
     }
 
@@ -58,13 +59,21 @@ class MockAblyPublisherService: AblyPublisherService {
     
     var sendTripStartMetadataCalled: Bool = false
     var sendTripStartMetadataParam: TripMetadata?
+    var sendTripStartMetadataHandler: (() -> Void)?
     func sendTripStartMetadata(metadata: TripMetadata) {
+        sendTripStartMetadataCalled = true
         sendTripStartMetadataParam = metadata
+        
+        sendTripStartMetadataHandler?()
     }
     
     var sendTripEndMetadataCalled: Bool = false
     var sendTripEndMetadataParam: TripMetadata?
+    var sendTripEndMetadataHandler: (() -> Void)?
     func sendTripEndMetadata(metadata: TripMetadata) {
+        sendTripEndMetadataCalled = true
         sendTripEndMetadataParam = metadata
+        
+        sendTripEndMetadataHandler?()
     }
 }
