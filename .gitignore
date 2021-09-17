@@ -31,3 +31,6 @@ PublisherExample/amplifyconfiguration.json
 
 # AppCode IDE
 .idea
+
+# Other files
+**/.DS_Store

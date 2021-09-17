@@ -25,7 +25,7 @@ class DefaultAblyPublisherService: AblyPublisherService {
             }
             
             let receivedConnectionState = stateChange.current.toConnectionState()
-
+            
             logger.debug("Connection to Ably changed. New state: \(receivedConnectionState)", source: "DefaultAblyPublisherService")
             self.delegate?.publisherService(
                 sender: self,
@@ -72,7 +72,7 @@ class DefaultAblyPublisherService: AblyPublisherService {
             }
             
             let receivedConnectionState = stateChange.current.toConnectionState()
-
+            
             logger.debug("Channel state for trackable \(trackable.id) changed. New state: \(receivedConnectionState)", source: "DefaultAblyPublisherService")
             self.delegate?.publisherService(sender: self, didChangeChannelConnectionState: receivedConnectionState, forTrackable: trackable)
         }
@@ -125,7 +125,7 @@ class DefaultAblyPublisherService: AblyPublisherService {
     private func closeClientConnection(completion: @escaping ResultHandler<Void>) {
         client.connection.on { connectionChange in
             let connectionState = connectionChange.current
-            
+
             switch connectionState {
             case .closed:
                 logger.info("Ably connection closed successfully.")
